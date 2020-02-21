@@ -81,3 +81,19 @@ public class UserNotFoundException extends RuntimeException {
 	}
 }
 ```
+
+#### Example Exception Thrown And Sample Response
+
+```java
+	@GetMapping("/throw")
+	private void throwException(){
+		throw new UserNotFoundException("Exception is thrown from here!");
+	}
+```
+```json
+{
+"timestamp": "2020-02-21T22:05:17.946+0000",
+"message": "Exception is thrown from here!",
+"details": "uri=/api/throw"
+}
+```
