@@ -1,16 +1,45 @@
 ### SPRING SECURITY WITH JWT (H2 IN MEMORY DB)
-#### Add the dependencies
+#### Dependencies
 ```html
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-security</artifactId>
-		</dependency>
+<dependency>
+	<groupId>org.springframework.boot</groupId>
+	<artifactId>spring-boot-starter-security</artifactId>
+</dependency>
 
-		<dependency>
-			<groupId>io.jsonwebtoken</groupId>
-			<artifactId>jjwt</artifactId>
-			<version>0.9.1</version>
-		</dependency>
+<dependency>
+	<groupId>io.jsonwebtoken</groupId>
+	<artifactId>jjwt</artifactId>
+	<version>0.9.1</version>
+</dependency>
+```
+
+### application.properties
+```java
+jwt.signing.key.secret=mySecret
+jwt.get.token.uri=/authenticate
+jwt.refresh.token.uri=/refresh
+jwt.http.request.header=Authorization
+jwt.token.expiration.in.seconds=604800
+```
+
+### data.sql
+```java
+INSERT INTO USER(ID, USER_NAME, PASSWORD, ACTIVE, ROLES) VALUES (1,'yustunay','$2a$10$q5EvxEXq6lnxjysc.bvxN.QQxfMBZAixWpBE9KvgpZjtlyIUyqVua','true','ROLE_ADMIN')
+```
+
+#### UserNotFoundException
+```java
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.ResponseStatus;
+
+@ResponseStatus(HttpStatus.NOT_FOUND)
+public class UserNotFoundException extends RuntimeException {
+
+	public UserNotFoundException(String exception) {
+		super(exception);
+	}
+
+}
 ```
 
 #### UserController.java
@@ -435,16 +464,6 @@ public class SecurityConfigurer extends WebSecurityConfigurerAdapter{
 }
 ```
 
-### application.properties
-```java
-jwt.signing.key.secret=mySecret
-jwt.get.token.uri=/authenticate
-jwt.refresh.token.uri=/refresh
-jwt.http.request.header=Authorization
-jwt.token.expiration.in.seconds=604800
-```
-
-
 ### JwtTokenUtil.java
 ```java
 import java.util.Date;
@@ -533,10 +552,5 @@ public class JwtTokenUtil {
 	}
 	
 }
-```
-
-### data.sql
-```java
-INSERT INTO USER(ID, USER_NAME, PASSWORD, ACTIVE, ROLES) VALUES (1,'yustunay','$2a$10$q5EvxEXq6lnxjysc.bvxN.QQxfMBZAixWpBE9KvgpZjtlyIUyqVua','true','ROLE_ADMIN')
 ```
 
