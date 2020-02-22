@@ -15,7 +15,73 @@
 
 #### UserController.java
 ```java
-	@PostMapping("/authenticate")
+import java.util.ArrayList;
+import java.util.List;
+
+import javax.servlet.http.HttpServletRequest;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.example.stub.domain.AuthenticationRequest;
+import com.example.stub.domain.AuthenticationResponse;
+import com.example.stub.domain.User;
+import com.example.stub.exception.UserNotFoundException;
+import com.example.stub.service.UserService;
+import com.example.stub.util.JwtTokenUtil;
+
+@RestController
+public class UserController {
+
+	@Autowired
+	private AuthenticationManager authenticationManager;
+
+	@Autowired
+	private UserService userService;
+
+	@Autowired
+	private UserDetailsService userDetailsService;
+
+	@Autowired
+	private JwtTokenUtil jwtTokenUtil;
+	
+	@Value("${jwt.http.request.header:Authorization}")
+	private String tokenHeader;
+
+	@GetMapping("/")
+	public String homepage() {
+		return "Welcome";
+	}
+
+	
+	@GetMapping("/hello")
+	public String hello() {
+		return "Hello World!";
+	}
+
+	@GetMapping("/users")
+	public List<User> getUsers() {
+		return userService.getUsers().orElse(new ArrayList<User>());
+	}
+
+	@GetMapping("/throw")
+	public void throwException() {
+		throw new UserNotFoundException("Exception is thrown from here!");
+	}
+
+	@PostMapping("${jwt.get.token.uri:/authenticate}")
 	public ResponseEntity<?> createAuthenticationToken(@RequestBody AuthenticationRequest authenticationRequest)
 			throws Exception {
 		try {
@@ -31,6 +97,23 @@
 		
 		return ResponseEntity.ok(new AuthenticationResponse(jwt));
 	}
+	
+	@RequestMapping(value = "${jwt.refresh.token.uri:/refresh}", method = RequestMethod.GET)
+	public ResponseEntity<?> refreshAndGetAuthenticationToken(HttpServletRequest request) {
+		String authToken = request.getHeader(tokenHeader);
+		final String token = authToken.substring(7);
+		String username = jwtTokenUtil.extractUserName(token);
+		final UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+
+		if (jwtTokenUtil.canTokenBeRefreshed(token)) {
+			String refreshedToken = jwtTokenUtil.refreshToken(token);
+			return ResponseEntity.ok(new AuthenticationResponse(refreshedToken));
+		} else {
+			return ResponseEntity.badRequest().body(null);
+		}
+	}
+
+}
 ```
 
 #### MyUserDetails.java
@@ -165,14 +248,15 @@ public class User {
 
 #### JwtRequestFilter.java
 ```java
-package com.example.stub.filters;
-
 import java.io.IOException;
+
 import javax.servlet.FilterChain;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -192,11 +276,14 @@ public class JwtRequestFilter extends OncePerRequestFilter{
 	@Autowired
 	private JwtTokenUtil jwtUtil;
 	
+    @Value("${jwt.http.request.header:Authorization}")
+    private String tokenHeader;
+	
 	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
 			throws ServletException, IOException {
 
-		final String authorizationHeader = request.getHeader("Authorization");
+		final String authorizationHeader = request.getHeader(tokenHeader);
 		
 		String username = null;
 		String jwt = null;
@@ -348,6 +435,16 @@ public class SecurityConfigurer extends WebSecurityConfigurerAdapter{
 }
 ```
 
+### application.properties
+```java
+jwt.signing.key.secret=mySecret
+jwt.get.token.uri=/authenticate
+jwt.refresh.token.uri=/refresh
+jwt.http.request.header=Authorization
+jwt.token.expiration.in.seconds=604800
+```
+
+
 ### JwtTokenUtil.java
 ```java
 import java.util.Date;
@@ -355,6 +452,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
@@ -364,7 +462,12 @@ import io.jsonwebtoken.SignatureAlgorithm;
 
 @Service
 public class JwtTokenUtil {
-	private String SECRET_KEY = "secret";
+	
+	@Value("${jwt.signing.key.secret:mysecret}")
+	private String secret;
+	
+	@Value("${jwt.token.expiration.in.seconds:604800}")
+	private Long expiration;
 
 	public String extractUserName(String token) {
 		return extractClaim(token, Claims::getSubject);
@@ -381,7 +484,7 @@ public class JwtTokenUtil {
 
 	private Claims extractAllClaims(String token) {
 		return Jwts.parser()
-				   .setSigningKey(SECRET_KEY)
+				   .setSigningKey(secret)
 				   .parseClaimsJws(token)
 				   .getBody();
 	}
@@ -399,14 +502,34 @@ public class JwtTokenUtil {
 		return Jwts.builder().setClaims(claims)
 							 .setSubject(username)
 							 .setIssuedAt(new Date(System.currentTimeMillis()))
-							 .setExpiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60 * 10)) //10 hours
-							 .signWith(SignatureAlgorithm.HS256, SECRET_KEY)
+							 .setExpiration(new Date(System.currentTimeMillis() + expiration))
+							 .signWith(SignatureAlgorithm.HS512, secret)
 							 .compact();
 	}
 
 	public Boolean validateToken(String token, UserDetails userDetails) {
 		final String username = extractUserName(token);
 		return (username.equals(userDetails.getUsername()) && !isTokenExpired(token));
+	}
+	
+	public Boolean canTokenBeRefreshed(String token) {
+		return (!isTokenExpired(token) || ignoreTokenExpiration(token));
+	}
+	
+	private Boolean ignoreTokenExpiration(String token) {
+		// here you specify tokens, for that the expiration is ignored
+		return false;
+	}
+	
+	public String refreshToken(String token) {
+		final Date createdDate = new Date(System.currentTimeMillis());
+		final Date expirationDate = new Date(System.currentTimeMillis() + expiration);
+
+		final Claims claims = extractAllClaims(token);
+		claims.setIssuedAt(createdDate);
+		claims.setExpiration(expirationDate);
+
+		return Jwts.builder().setClaims(claims).signWith(SignatureAlgorithm.HS512, secret).compact();
 	}
 	
 }
