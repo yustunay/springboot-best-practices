@@ -226,7 +226,7 @@ class GoodItemAdapterRestController {
 }
 ```
 
-## EUREKA CLIENT (edge-service)
+## EUREKA CLIENT (item-catalog-service)
 
 #### pom.xml
 
